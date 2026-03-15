@@ -1,19 +1,35 @@
 #![allow(unused_imports)]
-use std::{io::Write, net::TcpListener};
+use std::{
+    io::{Read, Write},
+    net::TcpListener,
+};
 
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
 
-    // Uncomment this block to pass the first stage
-    //
-    let listener: TcpListener = TcpListener::bind("127.0.0.1:6379").unwrap();
-    
+    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+
     for stream in listener.incoming() {
         match stream {
-            Ok(mut _stream) => {
+            Ok(mut stream) => {
                 println!("accepted new connection");
-                _stream.write_all(b"+PONG\r\n").unwrap();
+
+                let mut buffer = [0; 1024];
+
+                loop {
+                    let bytes_read = match stream.read(&mut buffer) {
+                        Ok(0) => break, // connection closed
+                        Ok(n) => n,
+                        Err(_) => break,
+                    };
+
+                    let input = String::from_utf8_lossy(&buffer[..bytes_read]);
+                    println!("received: {}", input);
+
+                    if input.contains("PING") {
+                        stream.write_all(b"+PONG\r\n").unwrap();
+                    }
+                }
             }
             Err(e) => {
                 println!("error: {}", e);
