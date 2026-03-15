@@ -12,10 +12,8 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
-                loop {
-                    println!("accepted new connection");
-                    _stream.write_all(b"+PONG\r\n").unwrap();
-                }
+                println!("accepted new connection");
+                _stream.write_all(b"+PONG\r\n").unwrap();
             }
             Err(e) => {
                 println!("error: {}", e);
