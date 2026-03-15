@@ -8,17 +8,17 @@ fn main() {
     // Uncomment this block to pass the first stage
     //
     let listener: TcpListener = TcpListener::bind("127.0.0.1:6379").unwrap();
-
-    loop {
-        for stream in listener.incoming() {
-            match stream {
-                Ok(mut _stream) => {
+    
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut _stream) => {
+                loop {
                     println!("accepted new connection");
                     _stream.write_all(b"+PONG\r\n").unwrap();
                 }
-                Err(e) => {
-                    println!("error: {}", e);
-                }
+            }
+            Err(e) => {
+                println!("error: {}", e);
             }
         }
     }
