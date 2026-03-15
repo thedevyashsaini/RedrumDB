@@ -15,7 +15,6 @@ fn main() {
                 println!("accepted new connection");
                 let mut buffer: [u8; 1024] = [0; 1024];
                 loop {
-                    _stream.read(&mut buffer).unwrap();
                     match _stream.read(&mut buffer) {
                         Ok(0) => break, 
                         Ok(n) => n,
