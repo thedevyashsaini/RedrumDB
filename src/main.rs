@@ -3,9 +3,13 @@ use mio::{Events, Interest, Poll, Token};
 use slab::Slab;
 use std::io::{Read, Write};
 
+mod resp;
+use resp::{parse_command};
+
 const SERVER: Token = Token(0);
 
 fn main() -> std::io::Result<()> {
+    println!("Starting Redis-like server on 127.0.0.1:6379");
     let mut poll = Poll::new()?;
     let mut events = Events::with_capacity(128);
 
@@ -23,7 +27,6 @@ fn main() -> std::io::Result<()> {
         for event in events.iter() {
             match event.token() {
                 SERVER => {
-                    // Accept new clients
                     loop {
                         match listener.accept() {
                             Ok((mut stream, _addr)) => {
@@ -58,7 +61,22 @@ fn main() -> std::io::Result<()> {
                                 connections.remove(idx);
                             }
                             Ok(_n) => {
-                                let _ = stream.write_all(b"+PONG\r\n");
+                                println!(
+                                    "Received: {}",
+                                    std::str::from_utf8(&buffer)
+                                        .unwrap()
+                                        .trim()
+                                        .replace("\r\n", "\\r\\n")
+                                );
+
+                                if let Some((cmd, _consumed)) = parse_command(&buffer) {
+                                    println!("Parsed command: {:?}", cmd);
+
+                                    let response = handle_command(cmd);
+                                    let _ = stream.write_all(response.as_bytes());
+                                } else {
+                                    let _ = stream.write_all(b"-ERR invalid RESP\r\n");
+                                }
                             }
                             Err(e) => {
                                 if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -71,5 +89,29 @@ fn main() -> std::io::Result<()> {
                 }
             }
         }
+    }
+}
+
+fn handle_command(cmd: Vec<String>) -> String {
+    if cmd.is_empty() {
+        return "-ERR empty command\r\n".to_string();
+    }
+
+    match cmd[0].to_uppercase().as_str() {
+        "PING" => {
+            if cmd.len() > 1 {
+                format!("${}\r\n{}\r\n", cmd[1].len(), cmd[1])
+            } else {
+                "+PONG\r\n".to_string()
+            }
+        }
+        "ECHO" => {
+            if cmd.len() < 2 {
+                "-ERR wrong number of arguments\r\n".to_string()
+            } else {
+                format!("${}\r\n{}\r\n", cmd[1].len(), cmd[1])
+            }
+        }
+        _ => "-ERR unknown command\r\n".to_string(),
     }
 }
