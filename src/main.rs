@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 
 mod commands;
 use commands::parse_command;
+use std::collections::HashMap;
 
 const SERVER: Token = Token(0);
 
@@ -15,11 +16,12 @@ fn main() -> std::io::Result<()> {
 
     let mut listener = TcpListener::bind("127.0.0.1:6379".parse().unwrap())?;
 
-    // Register listener
     poll.registry()
         .register(&mut listener, SERVER, Interest::READABLE)?;
 
     let mut connections = Slab::new();
+
+    let mut db: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
 
     loop {
         poll.poll(&mut events, None)?;
@@ -35,7 +37,7 @@ fn main() -> std::io::Result<()> {
                             poll.registry()
                                 .register(&mut stream, token, Interest::READABLE)?;
 
-                            entry.insert(stream);
+                            entry.insert((stream, Vec::new()));
                         }
                         Err(e) => {
                             if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -51,37 +53,40 @@ fn main() -> std::io::Result<()> {
                 token => {
                     let idx = token.0 - 1;
 
-                    if let Some(stream) = connections.get_mut(idx) {
-                        let mut buffer: [u8; 1024] = [0; 1024];
+                    if let Some((stream, buffer)) = connections.get_mut(idx) {
+                        let mut temp: [u8; 1024] = [0; 1024];
 
-                        match stream.read(&mut buffer) {
+                        match stream.read(&mut temp) {
                             Ok(0) => {
                                 connections.remove(idx);
                             }
-                            Ok(_n) => {
+                            Ok(n) => {
+                                buffer.extend_from_slice(&temp[..n]);
+
                                 println!(
                                     "Received: \r\n{}",
-                                    std::str::from_utf8(&buffer)
+                                    std::str::from_utf8(buffer)
                                         .unwrap()
                                         .trim()
                                 );
 
-                                match parse_command(&buffer) {
-                                    Ok(mut command) => {
+                                match parse_command(buffer) {
+                                    Ok(command) => {
                                         println!("Command: {:?}", command.cmd_type);
 
-                                        let response = command.process().unwrap();
+                                        let response = command.process(&mut db).unwrap();
                                         let _ = stream.write_all(response.as_bytes());
+                                        buffer.clear();
                                     }
 
                                     Err(_) => {
                                         let _ = stream.write_all(b"-ERR invalid RESP\r\n");
+                                        buffer.clear();
                                     }
                                 }
                             }
                             Err(e) => {
-                                if e.kind() == std::io::ErrorKind::WouldBlock {
-                                } else {
+                                if e.kind() != std::io::ErrorKind::WouldBlock {
                                     connections.remove(idx);
                                 }
                             }
