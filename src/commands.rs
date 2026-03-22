@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 pub fn read_line(buf: &[u8], start: usize) -> Option<(usize, usize)> {
     for i in start..buf.len() - 1 {
@@ -45,7 +46,7 @@ pub struct Command<'a> {
 }
 
 impl Command<'_> {
-    pub(crate) fn process(&self, db: &mut HashMap<Vec<u8>, Vec<u8>>) -> Result<String, String> {
+    pub(crate) fn process(&self, db: &mut HashMap<Vec<u8>,  (Vec<u8>, Option<Instant>)>) -> Result<String, String> {
         match self.cmd_type {
             CommandType::PING => {
                 if !self.args.is_empty() {
@@ -67,14 +68,43 @@ impl Command<'_> {
                 let key = self.args.get(0).ok_or("ERR missing key")?;
                 let value = self.args.get(1).ok_or("ERR missing value")?;
 
-                db.insert(key.to_vec(), value.to_vec());
+                let mut expiry: Option<Instant> = None;
+
+                let rn = Instant::now();
+                if self.args.len() > 2 {
+                    let option = std::str::from_utf8(self.args[2]).unwrap().to_uppercase();
+
+                    if option == "EX" ||  option == "PX" {
+                        let exp = std::str::from_utf8(self.args.get(3).ok_or("ERR missing EX value")?)
+                            .unwrap()
+                            .parse::<u64>()
+                            .map_err(|_| "ERR invalid EX/PX value")?;
+
+                        let duration = if option == "PX" {
+                            std::time::Duration::from_millis(exp)
+                        } else {
+                            std::time::Duration::from_secs(exp)
+                        };
+
+                        expiry = Some(rn + duration);
+                    }
+                }
+
+                println!("{:?}, {:?}, {:?}, {:?}", key.to_vec(), value.to_vec(), rn, expiry);
+                db.insert(key.to_vec(), (value.to_vec(), expiry));
                 Ok("+OK\r\n".to_string())
             }
 
             CommandType::GET => {
                 let key = self.args.get(0).ok_or("ERR missing key")?;
 
-                if let Some(val) = db.get(*key) {
+                if let Some((val, expiry)) = db.get(*key) {
+                    if let Some(exp) = expiry {
+                        if Instant::now() >= *exp {
+                            db.remove(*key);
+                            return Ok("$-1\r\n".to_string());
+                        }
+                    }
                     Ok(format!("${}\r\n{}\r\n", val.len(), std::str::from_utf8(val).unwrap()))
                 } else {
                     Ok("$-1\r\n".to_string())
