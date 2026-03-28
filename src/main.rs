@@ -80,7 +80,7 @@ fn main() -> std::io::Result<()> {
                                         Ok(command) => {
                                             println!("Command: {:?}", command.cmd_type);
 
-                                            let response = command.process(&mut db).unwrap();
+                                            let response = command.process(&mut db, &mut expiries).unwrap();
 
                                             let is_empty: bool = w_buffer.is_empty();
                                             w_buffer.extend_from_slice(&response);

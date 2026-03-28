@@ -1,5 +1,7 @@
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::time::Instant;
+use std::collections::BinaryHeap;
 
 pub fn read_line(buf: &[u8], start: usize) -> Option<(usize, usize)> {
     for i in start..buf.len() - 1 {
@@ -46,7 +48,7 @@ pub struct Command<'a> {
 }
 
 impl Command<'_> {
-    pub(crate) fn process(&self, db: &mut HashMap<Vec<u8>, (Vec<u8>, Option<Instant>)>) -> Result<Vec<u8>, Vec<u8>> {
+    pub(crate) fn process(&self, db: &mut HashMap<Vec<u8>, (Vec<u8>, Option<Instant>)>, expiries: &mut BinaryHeap<(Reverse<Instant>, Vec<u8>)>) -> Result<Vec<u8>, Vec<u8>> {
         match self.cmd_type {
             CommandType::PING => {
                 if !self.args.is_empty() {
@@ -94,6 +96,10 @@ impl Command<'_> {
 
                         expiry = Some(rn + duration);
                     }
+                }
+
+                if let Some(exp) = expiry {
+                    expiries.push((Reverse(exp), key.to_vec()));
                 }
 
                 db.insert(key.to_vec(), (value.to_vec(), expiry));
