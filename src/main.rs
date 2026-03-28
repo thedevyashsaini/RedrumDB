@@ -82,7 +82,7 @@ fn main() -> std::io::Result<()> {
                                         println!("Command: {:?}", command.cmd_type);
 
                                         let response = command.process(&mut db).unwrap();
-                                        let _ = stream.write_all(response.as_bytes());
+                                        let _ = stream.write_all(&response);
                                         buffer.clear();
                                     }
 

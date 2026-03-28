@@ -46,22 +46,28 @@ pub struct Command<'a> {
 }
 
 impl Command<'_> {
-    pub(crate) fn process(&self, db: &mut HashMap<Vec<u8>,  (Vec<u8>, Option<Instant>)>) -> Result<String, String> {
+    pub(crate) fn process(&self, db: &mut HashMap<Vec<u8>, (Vec<u8>, Option<Instant>)>) -> Result<Vec<u8>, Vec<u8>> {
         match self.cmd_type {
             CommandType::PING => {
                 if !self.args.is_empty() {
-                    let arg = std::str::from_utf8(self.args[0]).unwrap();
-                    Ok(format!("${}\r\n{}\r\n", arg.len(), arg))
+                    let arg = self.args[0];
+                    let mut res = Vec::with_capacity(arg.len() + 32);
+
+                    res.extend_from_slice(format!("${}\r\n", arg.len()).as_bytes());
+                    res.extend_from_slice(arg);
+                    res.extend_from_slice(b"\r\n");
+
+                    Ok(res)
                 } else {
-                    Ok("+PONG\r\n".to_string())
+                    Ok(b"+PONG\r\n".to_vec())
                 }
             }
             CommandType::ECHO => {
                 if self.args.is_empty() {
-                    Err("-ERR wrong number of arguments\r\n".to_string())
+                    Err(b"-ERR wrong number of arguments\r\n".to_vec())
                 } else {
                     let arg = std::str::from_utf8(self.args[0]).unwrap();
-                    Ok(format!("${}\r\n{}\r\n", arg.len(), arg))
+                    Ok(format!("${}\r\n{}\r\n", arg.len(), arg).as_bytes().to_vec())
                 }
             }
             CommandType::SET => {
@@ -92,7 +98,7 @@ impl Command<'_> {
 
                 println!("{:?}, {:?}, {:?}, {:?}", key.to_vec(), value.to_vec(), rn, expiry);
                 db.insert(key.to_vec(), (value.to_vec(), expiry));
-                Ok("+OK\r\n".to_string())
+                Ok(b"+OK\r\n".to_vec())
             }
 
             CommandType::GET => {
@@ -102,21 +108,27 @@ impl Command<'_> {
                     if let Some(exp) = expiry {
                         if Instant::now() >= *exp {
                             db.remove(*key);
-                            return Ok("$-1\r\n".to_string());
+                            return Ok(b"$-1\r\n".to_vec());
                         }
                     }
-                    Ok(format!("${}\r\n{}\r\n", val.len(), std::str::from_utf8(val).unwrap()))
+                    let mut res = Vec::with_capacity(val.len() + 32);
+
+                    res.extend_from_slice(format!("${}\r\n", val.len()).as_bytes());
+                    res.extend_from_slice(val);
+                    res.extend_from_slice(b"\r\n");
+
+                    Ok(res)
                 } else {
-                    Ok("$-1\r\n".to_string())
+                    Ok(b"$-1\r\n".to_vec())
                 }
             }
         }
     }
 }
 
-pub fn parse_command(buf: &[u8]) -> Result<Command<'_>, String> {
+pub fn parse_command(buf: &[u8]) -> Result<Command<'_>, Vec<u8>> {
     if buf.get(0) != Some(&b'*') {
-        return Err("No Command".to_string());
+        return Err(b"No Command".to_vec());
     }
 
     let (count_start, count_end) = read_line(buf, 1).ok_or("Invalid")?;
@@ -145,7 +157,7 @@ pub fn parse_command(buf: &[u8]) -> Result<Command<'_>, String> {
         "ECHO" => CommandType::ECHO,
         "SET" => CommandType::SET,
         "GET" => CommandType::GET,
-        _ => return Err("Invalid command".to_string()),
+        _ => return Err(b"Invalid command".to_vec()),
     };
 
     Ok(Command { cmd_type, args })
