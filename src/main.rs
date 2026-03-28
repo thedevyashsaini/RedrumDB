@@ -44,7 +44,7 @@ fn main() -> std::io::Result<()> {
                             poll.registry()
                                 .register(&mut stream, token, Interest::READABLE)?;
 
-                            entry.insert((stream, Vec::new()));
+                            entry.insert((stream, Vec::new(), Vec::new()));
                         }
                         Err(e) => {
                             if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -60,44 +60,85 @@ fn main() -> std::io::Result<()> {
                 token => {
                     let idx = token.0 - 1;
 
-                    if let Some((stream, buffer)) = connections.get_mut(idx) {
-                        let mut temp: [u8; 1024] = [0; 1024];
+                    let mut should_remove = false;
 
-                        match stream.read(&mut temp) {
-                            Ok(0) => {
-                                connections.remove(idx);
-                            }
-                            Ok(n) => {
-                                buffer.extend_from_slice(&temp[..n]);
+                    if let Some((stream, r_buffer, w_buffer)) = connections.get_mut(idx) {
 
-                                println!(
-                                    "Received: \r\n{}",
-                                    std::str::from_utf8(buffer)
-                                        .unwrap()
-                                        .trim()
-                                );
+                        if event.is_readable() {
+                            let mut temp: [u8; 1024] = [0; 1024];
 
-                                match parse_command(buffer) {
-                                    Ok(command) => {
-                                        println!("Command: {:?}", command.cmd_type);
+                            match stream.read(&mut temp) {
+                                Ok(0) => {
+                                    should_remove = true;
+                                }
+                                Ok(n) => {
+                                    r_buffer.extend_from_slice(&temp[..n]);
 
-                                        let response = command.process(&mut db).unwrap();
-                                        let _ = stream.write_all(&response);
-                                        buffer.clear();
-                                    }
+                                    println!("Received: {}", String::from_utf8_lossy(r_buffer));
 
-                                    Err(_) => {
-                                        let _ = stream.write_all(b"-ERR invalid RESP\r\n");
-                                        buffer.clear();
+                                    match parse_command(r_buffer) {
+                                        Ok(command) => {
+                                            println!("Command: {:?}", command.cmd_type);
+
+                                            let response = command.process(&mut db).unwrap();
+
+                                            let is_empty: bool = w_buffer.is_empty();
+                                            w_buffer.extend_from_slice(&response);
+
+                                            if is_empty {
+                                                poll.registry()
+                                                    .reregister(stream, token, Interest::READABLE.add(Interest::WRITABLE), )?;
+                                            }
+                                            r_buffer.clear();
+                                        }
+
+                                        Err(_) => {
+                                            let is_empty: bool = w_buffer.is_empty();
+                                            w_buffer.extend_from_slice(b"-ERR invalid RESP\r\n");
+
+                                            if is_empty {
+                                                poll.registry()
+                                                    .reregister(stream, token, Interest::READABLE.add(Interest::WRITABLE), )?;
+                                            }
+                                            r_buffer.clear();
+                                        }
                                     }
                                 }
-                            }
-                            Err(e) => {
-                                if e.kind() != std::io::ErrorKind::WouldBlock {
-                                    connections.remove(idx);
+                                Err(e) => {
+                                    if e.kind() != std::io::ErrorKind::WouldBlock {
+                                        should_remove = true;
+                                    }
                                 }
                             }
                         }
+
+                        if event.is_writable() {
+                            while !w_buffer.is_empty() {
+                                match stream.write(w_buffer) {
+                                    Ok(0) => break,
+                                    Ok(n) => {
+                                        w_buffer.drain(..n);
+                                    }
+                                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                                    Err(_) => {
+                                        should_remove = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if w_buffer.is_empty() {
+                                poll.registry().reregister(
+                                    stream,
+                                    token,
+                                    Interest::READABLE,
+                                )?;
+                            }
+                        }
+                    }
+
+                    if should_remove {
+                        connections.remove(idx);
                     }
                 }
             }

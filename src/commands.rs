@@ -96,7 +96,6 @@ impl Command<'_> {
                     }
                 }
 
-                println!("{:?}, {:?}, {:?}, {:?}", key.to_vec(), value.to_vec(), rn, expiry);
                 db.insert(key.to_vec(), (value.to_vec(), expiry));
                 Ok(b"+OK\r\n".to_vec())
             }
