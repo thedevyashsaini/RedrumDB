@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, VecDeque};
 use std::io::Write;
 use std::time::Instant;
 
@@ -44,6 +44,9 @@ pub enum CommandType {
     // KV
     SET,
     GET,
+
+    // LIST
+    RPUSH,
 }
 
 #[derive(Debug)]
@@ -126,6 +129,33 @@ impl Command<'_> {
                 Ok(b"+OK\r\n".to_vec())
             }
 
+            CommandType::RPUSH => {
+                let key = self.args.get(0).ok_or("ERR missing key")?;
+                let value = self.args.get(1).ok_or("ERR missing value")?;
+
+                if let Some(Entry {
+                    value: Value::List(ref mut list),
+                    ..
+                }) = db.get_mut(*key)
+                {
+                    list.push_front(value.to_vec());
+                    let mut res = Vec::with_capacity(32);
+                    write!(res, ":{}\r\n", list.len()).unwrap();
+                    Ok(res)
+                } else {
+                    let mut newlist = VecDeque::new();
+                    newlist.push_front(value.to_vec());
+                    db.insert(
+                        key.to_vec(),
+                        Entry {
+                            value: Value::List(newlist),
+                            expiry: None,
+                        },
+                    );
+                    Ok(b":1\r\n".to_vec())
+                }
+            }
+
             CommandType::GET => {
                 let key = self.args.get(0).ok_or("ERR missing key")?;
 
@@ -187,6 +217,7 @@ pub fn parse_command(buf: &[u8]) -> Result<Command<'_>, Vec<u8>> {
         "ECHO" => CommandType::ECHO,
         "SET" => CommandType::SET,
         "GET" => CommandType::GET,
+        "RPUSH" => CommandType::RPUSH,
         _ => return Err(b"Invalid command".to_vec()),
     };
 
