@@ -2,6 +2,7 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::time::Instant;
 use std::collections::BinaryHeap;
+use std::io::Write;
 
 pub fn read_line(buf: &[u8], start: usize) -> Option<(usize, usize)> {
     for i in start..buf.len() - 1 {
@@ -55,7 +56,7 @@ impl Command<'_> {
                     let arg = self.args[0];
                     let mut res = Vec::with_capacity(arg.len() + 32);
 
-                    res.extend_from_slice(format!("${}\r\n", arg.len()).as_bytes());
+                    write!(res, "${}\r\n", arg.len()).unwrap();
                     res.extend_from_slice(arg);
                     res.extend_from_slice(b"\r\n");
 
@@ -68,8 +69,12 @@ impl Command<'_> {
                 if self.args.is_empty() {
                     Err(b"-ERR wrong number of arguments\r\n".to_vec())
                 } else {
-                    let arg = std::str::from_utf8(self.args[0]).unwrap();
-                    Ok(format!("${}\r\n{}\r\n", arg.len(), arg).as_bytes().to_vec())
+                    let arg = self.args[0];
+                    let mut res = Vec::with_capacity(arg.len() + 32);
+                    write!(res, "${}\r\n", arg.len()).unwrap();
+                    res.extend_from_slice(arg);
+                    res.extend_from_slice(b"\r\n");
+                    Ok(res)
                 }
             }
             CommandType::SET => {
@@ -118,7 +123,7 @@ impl Command<'_> {
                     }
                     let mut res = Vec::with_capacity(val.len() + 32);
 
-                    res.extend_from_slice(format!("${}\r\n", val.len()).as_bytes());
+                    write!(res, "${}\r\n", val.len()).unwrap();
                     res.extend_from_slice(val);
                     res.extend_from_slice(b"\r\n");
 
