@@ -297,6 +297,33 @@ command_handler!(llen, args, db, _expiries, {
     }
 });
 
+command_handler!(lpop, args, db, _expiries, {
+    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+
+    if let Some(entry) = db.get_mut(*key) {
+        match entry.value {
+            Value::List(ref mut list) => {
+                if list.len() == 0 {
+                    return Ok(b"$-1\r\n".to_vec());
+                }
+
+                if let Some(item) = list.pop_front() {
+                    let mut res = Vec::with_capacity(32);
+                    write!(res, "${}\r\n", item.len()).unwrap();
+                    res.extend_from_slice(&item);
+                    res.extend_from_slice(b"\r\n");
+                    Ok(res)
+                } else {
+                    Ok(b"$-1\r\n".to_vec())
+                }
+            },
+            _ => Err(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec()),
+        }
+    } else {
+        Ok(b"$-1\r\n".to_vec())
+    }
+});
+
 pub type CommandTable = HashMap<&'static [u8], CommandHandler>;
 
 pub fn command_table() -> CommandTable {
@@ -310,6 +337,7 @@ pub fn command_table() -> CommandTable {
     table.insert(b"LRANGE", lrange);
     table.insert(b"LPUSH", lpush);
     table.insert(b"LLEN", llen);
+    table.insert(b"LPOP", lpop);
     table
 }
 
