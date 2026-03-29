@@ -194,6 +194,47 @@ command_handler!(rpush, args, db, _expiries, {
     Ok(res)
 });
 
+command_handler!(lpush, args, db, _expiries, {
+    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+    if args.len() < 2 {
+        return Err(b"-ERR wrong number of arguments\r\n".to_vec());
+    }
+
+    let values = &args[1..];
+
+    let list_len: usize;
+
+    if let Some(Entry {
+                    value: Value::List(ref mut list),
+                    ..
+                }) = db.get_mut(*key)
+    {
+        for v in values {
+            list.push_front(v.to_vec());
+        }
+        list_len = list.len();
+    } else {
+        let mut newlist = VecDeque::new();
+        for v in values {
+            newlist.push_front(v.to_vec());
+        }
+
+        list_len = newlist.len();
+
+        db.insert(
+            key.to_vec(),
+            Entry {
+                value: Value::List(newlist),
+                expiry: None,
+            },
+        );
+    }
+
+    let mut res = Vec::with_capacity(32);
+    write!(res, ":{}\r\n", list_len).unwrap();
+    Ok(res)
+});
+
 command_handler!(lrange, args, db, _expiries, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
     let start = args.get(1).ok_or(b"ERR missing start".to_vec())?;
@@ -239,45 +280,21 @@ command_handler!(lrange, args, db, _expiries, {
     }
 });
 
-command_handler!(lpush, args, db, _expiries, {
+command_handler!(llen, args, db, _expiries, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
-    if args.len() < 2 {
-        return Err(b"-ERR wrong number of arguments\r\n".to_vec());
-    }
 
-    let values = &args[1..];
-
-    let list_len: usize;
-
-    if let Some(Entry {
-                    value: Value::List(ref mut list),
-                    ..
-                }) = db.get_mut(*key)
-    {
-        for v in values {
-            list.push_front(v.to_vec());
-        }
-        list_len = list.len();
-    } else {
-        let mut newlist = VecDeque::new();
-        for v in values {
-            newlist.push_front(v.to_vec());
-        }
-
-        list_len = newlist.len();
-
-        db.insert(
-            key.to_vec(),
-            Entry {
-                value: Value::List(newlist),
-                expiry: None,
+    if let Some(entry) = db.get(*key) {
+        match &entry.value {
+            Value::List(list) => {
+                let mut res = Vec::with_capacity(32);
+                write!(res, ":{}\r\n", list.len()).unwrap();
+                Ok(res)
             },
-        );
+            _ => Err(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec()),
+        }
+    } else {
+        Ok(b":0\r\n".to_vec())
     }
-
-    let mut res = Vec::with_capacity(32);
-    write!(res, ":{}\r\n", list_len).unwrap();
-    Ok(res)
 });
 
 pub type CommandTable = HashMap<&'static [u8], CommandHandler>;
@@ -292,6 +309,7 @@ pub fn command_table() -> CommandTable {
     table.insert(b"RPUSH", rpush);
     table.insert(b"LRANGE", lrange);
     table.insert(b"LPUSH", lpush);
+    table.insert(b"LLEN", llen);
     table
 }
 
