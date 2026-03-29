@@ -4,13 +4,13 @@ use slab::Slab;
 use std::io::{Read, Write};
 
 mod commands;
+use commands::command_table;
+use commands::normalize_upper;
 use commands::parse_command;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
-use commands::normalize_upper;
-use commands::command_table;
 
 const SERVER: Token = Token(0);
 const MAX_CLEANUP: usize = 169;
@@ -94,18 +94,27 @@ fn main() -> std::io::Result<()> {
                                     match parse_command(r_buffer) {
                                         Ok(command) => {
                                             let mut temp = [0u8; 32];
-                                            let normalized = normalize_upper(command.name, &mut temp);
+                                            let normalized =
+                                                normalize_upper(command.name, &mut temp);
 
                                             let is_empty: bool = w_buffer.is_empty();
 
                                             match table.get(normalized) {
                                                 Some(handler) => {
-                                                    match &(handler)(&command.args, &mut db, &mut expiries) {
-                                                        Ok(bytes) | Err(bytes)  => w_buffer.extend_from_slice(bytes),
+                                                    match &(handler)(
+                                                        &command.args,
+                                                        &mut db,
+                                                        &mut expiries,
+                                                    ) {
+                                                        Ok(bytes) | Err(bytes) => {
+                                                            w_buffer.extend_from_slice(bytes)
+                                                        }
                                                     }
                                                 }
                                                 None => {
-                                                    w_buffer.extend_from_slice(b"-ERR unknown command\r\n");
+                                                    w_buffer.extend_from_slice(
+                                                        b"-ERR unknown command\r\n",
+                                                    );
                                                 }
                                             }
 

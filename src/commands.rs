@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::{VecDeque, HashMap};
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::time::Instant;
 
@@ -42,11 +42,8 @@ pub fn normalize_upper<'a>(cmd: &[u8], buf: &'a mut [u8]) -> &'a [u8] {
     &buf[..cmd.len()]
 }
 
-type CommandHandler = fn(
-    args: &[&[u8]],
-    db: &mut DB,
-    expiries: &mut Expiries,
-) -> Result<Vec<u8>, Vec<u8>>;
+type CommandHandler =
+    fn(args: &[&[u8]], db: &mut DB, expiries: &mut Expiries) -> Result<Vec<u8>, Vec<u8>>;
 
 macro_rules! command_handler {
     ($name:ident, $args:ident, $db:ident, $exp:ident, $body:block) => {
@@ -95,9 +92,7 @@ command_handler!(set, args, db, expiries, {
         let option = std::str::from_utf8(args[2]).unwrap().to_uppercase();
 
         if option == "EX" || option == "PX" {
-            let exp = std::str::from_utf8(
-                args.get(3).ok_or(b"ERR missing EX value".to_vec())?
-            )
+            let exp = std::str::from_utf8(args.get(3).ok_or(b"ERR missing EX value".to_vec())?)
                 .unwrap()
                 .parse::<u64>()
                 .map_err(|_| b"ERR invalid EX/PX value".to_vec())?;
@@ -128,7 +123,7 @@ command_handler!(set, args, db, expiries, {
 });
 
 command_handler!(get, args, db, _expiries, {
-   let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
 
     if let Some(entry) = db.get(*key) {
         if let Some(exp) = entry.expiry {
@@ -146,7 +141,9 @@ command_handler!(get, args, db, _expiries, {
                 res.extend_from_slice(b"\r\n");
                 Ok(res)
             }
-            _ => Err(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec()),
+            _ => Err(
+                b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec(),
+            ),
         }
     } else {
         Ok(b"$-1\r\n".to_vec())
@@ -164,9 +161,9 @@ command_handler!(rpush, args, db, _expiries, {
     let list_len: usize;
 
     if let Some(Entry {
-                    value: Value::List(ref mut list),
-                    ..
-                }) = db.get_mut(*key)
+        value: Value::List(ref mut list),
+        ..
+    }) = db.get_mut(*key)
     {
         for v in values {
             list.push_back(v.to_vec());
@@ -205,9 +202,9 @@ command_handler!(lpush, args, db, _expiries, {
     let list_len: usize;
 
     if let Some(Entry {
-                    value: Value::List(ref mut list),
-                    ..
-                }) = db.get_mut(*key)
+        value: Value::List(ref mut list),
+        ..
+    }) = db.get_mut(*key)
     {
         for v in values {
             list.push_front(v.to_vec());
@@ -243,7 +240,10 @@ command_handler!(lrange, args, db, _expiries, {
     if let Some(entry) = db.get(*key) {
         match &entry.value {
             Value::List(list) => {
-                let start = std::str::from_utf8(start).unwrap().parse::<isize>().unwrap();
+                let start = std::str::from_utf8(start)
+                    .unwrap()
+                    .parse::<isize>()
+                    .unwrap();
                 let stop = std::str::from_utf8(stop).unwrap().parse::<isize>().unwrap();
 
                 let len = list.len() as isize;
@@ -251,8 +251,12 @@ command_handler!(lrange, args, db, _expiries, {
                 let mut start = if start < 0 { len + start } else { start };
                 let mut stop = if stop < 0 { len + stop } else { stop };
 
-                if start < 0 { start = 0; }
-                if stop >= len { stop = len - 1; }
+                if start < 0 {
+                    start = 0;
+                }
+                if stop >= len {
+                    stop = len - 1;
+                }
 
                 if start > stop || start >= len {
                     return Ok(b"*0\r\n".to_vec());
@@ -272,8 +276,10 @@ command_handler!(lrange, args, db, _expiries, {
                 }
 
                 Ok(res)
-            },
-            _ => Err(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec()),
+            }
+            _ => Err(
+                b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec(),
+            ),
         }
     } else {
         Ok(b"*0\r\n".to_vec())
@@ -289,8 +295,10 @@ command_handler!(llen, args, db, _expiries, {
                 let mut res = Vec::with_capacity(32);
                 write!(res, ":{}\r\n", list.len()).unwrap();
                 Ok(res)
-            },
-            _ => Err(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec()),
+            }
+            _ => Err(
+                b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec(),
+            ),
         }
     } else {
         Ok(b":0\r\n".to_vec())
@@ -307,17 +315,55 @@ command_handler!(lpop, args, db, _expiries, {
                     return Ok(b"$-1\r\n".to_vec());
                 }
 
-                if let Some(item) = list.pop_front() {
-                    let mut res = Vec::with_capacity(32);
-                    write!(res, "${}\r\n", item.len()).unwrap();
-                    res.extend_from_slice(&item);
-                    res.extend_from_slice(b"\r\n");
-                    Ok(res)
+                let count = if let Some(count) = args.get(1) {
+                    std::str::from_utf8(count)
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap()
                 } else {
-                    Ok(b"$-1\r\n".to_vec())
+                    1
+                };
+
+                if count == 1 {
+                    return if let Some(item) = list.pop_front() {
+                        let mut res = Vec::with_capacity(32);
+                        write!(res, "${}\r\n", item.len()).unwrap();
+                        res.extend_from_slice(&item);
+                        res.extend_from_slice(b"\r\n");
+                        Ok(res)
+                    } else {
+                        Ok(b"$-1\r\n".to_vec())
+                    };
                 }
-            },
-            _ => Err(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec()),
+
+                let mut res = Vec::new();
+                let mut actual = 0;
+
+                for _ in 0..count {
+                    if let Some(item) = list.pop_front() {
+                        actual += 1;
+                        write!(res, "${}\r\n", item.len()).unwrap();
+                        res.extend_from_slice(&item);
+                        res.extend_from_slice(b"\r\n");
+                    } else {
+                        break;
+                    }
+                }
+
+                if actual == 0 {
+                    return Ok(b"*0\r\n".to_vec());
+                }
+
+                let mut header = Vec::new();
+                write!(header, "*{}\r\n", actual).unwrap();
+
+                header.extend_from_slice(&res);
+
+                Ok(header)
+            }
+            _ => Err(
+                b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n".to_vec(),
+            ),
         }
     } else {
         Ok(b"$-1\r\n".to_vec())
@@ -370,5 +416,8 @@ pub fn parse_command(buf: &[u8]) -> Result<Command<'_>, Vec<u8>> {
         pos = new_pos;
     }
 
-    Ok(Command { name: cmd_bytes, args })
+    Ok(Command {
+        name: cmd_bytes,
+        args,
+    })
 }
