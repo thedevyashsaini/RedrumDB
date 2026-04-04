@@ -54,7 +54,10 @@ pub struct Context<'a> {
     pub token: Token,
 }
 
-
+const PUBSUB_HANDLER: &[&[u8]] = &[
+    b"subscribe", b"unsubscribe", b"psubscribe",
+    b"punsubscribe", b"ping", b"quit"
+];
 
 macro_rules! command_handler {
     ($name:ident, $args:ident, $ctx:ident, $body:block) => {
@@ -62,13 +65,9 @@ macro_rules! command_handler {
             $args: &[&[u8]],
             $ctx: &mut Context,
         ) -> Result<Vec<u8>, Vec<u8>> {
-            let pubsub_handler: Vec<&[u8]> = vec![
-                b"subscribe", b"unsubscribe", b"psubscribe",
-                b"punsubscribe", b"ping", b"quit"
-            ];
 
             if *$ctx.is_pubsub
-                && !pubsub_handler.contains(&stringify!($name).as_bytes())
+                && !PUBSUB_HANDLER.contains(&stringify!($name).as_bytes())
             {
                 let mut res = Vec::with_capacity(122 + stringify!($name).len());
 
@@ -86,16 +85,22 @@ macro_rules! command_handler {
     };
 }
 
-command_handler!(ping, args, _ctx, {
+command_handler!(ping, args, ctx, {
     if !args.is_empty() {
         let arg = args[0];
         let mut res = Vec::with_capacity(arg.len() + 32);
 
+        if *ctx.is_pubsub {
+            res.extend_from_slice(b"*2\r\n$4\r\npong\r\n");
+        }
         write!(res, "${}\r\n", arg.len()).unwrap();
         res.extend_from_slice(arg);
         res.extend_from_slice(b"\r\n");
         Ok(res)
     } else {
+        if *ctx.is_pubsub {
+            return Ok(b"*2\r\n$4\r\npong\r\n$0\r\n\r\n".to_vec());
+        }
         Ok(b"+PONG\r\n".to_vec())
     }
 });
