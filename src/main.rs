@@ -9,9 +9,8 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 mod commands;
-use commands::command_table;
-use commands::normalize_upper;
-use commands::parse_command;
+use commands::{command_table, normalize_upper, parse_command};
+use crate::commands::Context;
 
 const SERVER: Token = Token(0);
 const MAX_CLEANUP: usize = 169;
@@ -31,7 +30,10 @@ pub struct Entry {
 pub type DB = HashMap<Key, Entry>;
 pub type Expiries = BinaryHeap<(Reverse<Instant>, Key)>;
 
-pub type ConnectionSlab = Slab<(mio::net::TcpStream, Vec<u8>, Vec<u8>, bool, Option<Key>, Option<Instant>)>;
+pub type Connection = (mio::net::TcpStream, Vec<u8>, Vec<u8>, bool, Option<Key>, Option<Instant>, Vec<Vec<u8>>, bool);
+pub type ConnectionSlab = Slab<Connection>;
+
+pub type PubSub = HashMap<Vec<u8>, Vec<Token>>;
 
 fn main() -> std::io::Result<()> {
     println!("Starting Redis-like server on 127.0.0.1:6379");
@@ -49,6 +51,7 @@ fn main() -> std::io::Result<()> {
     let mut expiries: Expiries = BinaryHeap::new();
     let mut blocked_queues: HashMap<Key, VecDeque<Token>> = HashMap::new();
     let mut blocked_timeouts: BinaryHeap<(Reverse<Instant>, Token)> = BinaryHeap::new();
+    let mut pubsub: PubSub = HashMap::new();
 
     let table = command_table();
 
@@ -80,7 +83,7 @@ fn main() -> std::io::Result<()> {
                             poll.registry()
                                 .register(&mut stream, token, Interest::READABLE)?;
 
-                            entry.insert((stream, Vec::new(), Vec::new(), false, None, None));
+                            entry.insert((stream, Vec::new(), Vec::new(), false, None, None, Vec::new(), false));
                         }
                         Err(e) => {
                             if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -96,140 +99,154 @@ fn main() -> std::io::Result<()> {
                 token => {
                     let idx = token.0 - 1;
 
+                    let mut conn = match connections.try_remove(idx) {
+                        Some(c) => c,
+                        None => continue,
+                    };
+
+                    let (stream, r_buffer, w_buffer, blocked_flag, block_key, block_deadline, subscriptions, is_pubsub) = &mut conn;
+
                     let mut should_remove = false;
                     let mut wake_key: Option<Vec<u8>> = None;
 
-                    if let Some((stream, r_buffer, w_buffer, blocked_flag, block_key, block_deadline)) = connections.get_mut(idx) {
-                        if event.is_readable() {
-                            if *blocked_flag {
-                                continue;
+                    if event.is_readable() {
+                        if *blocked_flag {
+                            connections.insert(conn);
+                            continue;
+                        }
+
+                        let mut temp = [0u8; 1024];
+
+                        match stream.read(&mut temp) {
+                            Ok(0) => {
+                                should_remove = true;
                             }
+                            Ok(n) => {
+                                r_buffer.extend_from_slice(&temp[..n]);
 
-                            let mut temp: [u8; 1024] = [0; 1024];
+                                match parse_command(r_buffer) {
+                                    Ok(command) => {
+                                        let mut temp = [0u8; 32];
+                                        let normalized = normalize_upper(command.name, &mut temp);
 
-                            match stream.read(&mut temp) {
-                                Ok(0) => {
-                                    should_remove = true;
-                                }
-                                Ok(n) => {
-                                    r_buffer.extend_from_slice(&temp[..n]);
+                                        let is_empty = w_buffer.is_empty();
 
-                                    println!("Received: {}", String::from_utf8_lossy(r_buffer));
+                                        let mut ctx = Context {
+                                            db: &mut db,
+                                            expiries: &mut expiries,
+                                            pubsub: &mut pubsub,
+                                            subscriptions,
+                                            is_pubsub,
+                                            token,
+                                        };
 
-                                    match parse_command(r_buffer) {
-                                        Ok(command) => {
-                                            let mut temp = [0u8; 32];
-                                            let normalized =
-                                                normalize_upper(command.name, &mut temp);
+                                        match table.get(normalized) {
+                                            Some(handler) => {
+                                                match (handler)(&command.args, &mut ctx) {
+                                                    Ok(bytes) => {
+                                                        w_buffer.extend_from_slice(&bytes);
 
-                                            let is_empty: bool = w_buffer.is_empty();
-
-                                            match table.get(normalized) {
-                                                Some(handler) => {
-                                                    match (handler)(&command.args, &mut db, &mut expiries) {
-                                                        Ok(bytes) => {
-                                                            w_buffer.extend_from_slice(&bytes);
-
-                                                            if normalized == b"LPUSH" || normalized == b"RPUSH" {
-                                                                    if let Some(key) = command.args.get(0) {
-                                                                    wake_key = Some(key.to_vec());
-                                                                }
-                                                            }
-                                                        }
-                                                        Err(bytes) => {
-                                                            if bytes == b"__BLOCK__" {
-                                                                *blocked_flag = true;
-
-                                                                let key: Key = Arc::from(command.args[0]);
-
-                                                                *block_key = Some(key.clone());
-
-                                                                let timeout = std::str::from_utf8(command.args[1])
-                                                                    .unwrap()
-                                                                    .parse::<f64>()
-                                                                    .unwrap();
-
-                                                                if timeout > 0.0 {
-                                                                    let deadline = Instant::now()
-                                                                        + std::time::Duration::from_millis((timeout * 1000f64) as u64);
-
-                                                                    *block_deadline = Some(deadline);
-                                                                    blocked_timeouts.push((Reverse(deadline), token));
-                                                                }
-
-                                                                blocked_queues
-                                                                    .entry(key.clone())
-                                                                    .or_insert_with(VecDeque::new)
-                                                                    .push_back(token);
-
-                                                                continue;
-                                                            } else {
-                                                                w_buffer.extend_from_slice(&bytes);
+                                                        if normalized == b"LPUSH" || normalized == b"RPUSH" {
+                                                            if let Some(key) = command.args.get(0) {
+                                                                wake_key = Some(key.to_vec());
                                                             }
                                                         }
                                                     }
-                                                },
+                                                    Err(bytes) => {
+                                                        if bytes == b"__BLOCK__" {
+                                                            *blocked_flag = true;
 
-                                                None => {
-                                                    w_buffer.extend_from_slice(
-                                                        b"-ERR unknown command\r\n",
-                                                    );
+                                                            let key: Key = Arc::from(command.args[0]);
+                                                            *block_key = Some(key.clone());
+
+                                                            let timeout = std::str::from_utf8(command.args[1])
+                                                                .unwrap()
+                                                                .parse::<f64>()
+                                                                .unwrap();
+
+                                                            if timeout > 0.0 {
+                                                                let deadline = Instant::now()
+                                                                    + std::time::Duration::from_millis((timeout * 1000.0) as u64);
+
+                                                                *block_deadline = Some(deadline);
+                                                                blocked_timeouts.push((Reverse(deadline), token));
+                                                            }
+
+                                                            blocked_queues
+                                                                .entry(key.clone())
+                                                                .or_insert_with(VecDeque::new)
+                                                                .push_back(token);
+
+                                                            connections.insert(conn);
+                                                            continue;
+                                                        } else {
+                                                            w_buffer.extend_from_slice(&bytes);
+                                                        }
+                                                    }
                                                 }
                                             }
-
-                                            if is_empty {
-                                                poll.registry().reregister(
-                                                    stream,
-                                                    token,
-                                                    Interest::READABLE.add(Interest::WRITABLE),
-                                                )?;
+                                            None => {
+                                                w_buffer.extend_from_slice(b"-ERR unknown command\r\n");
                                             }
-                                            r_buffer.clear();
                                         }
 
-                                        Err(_) => {
-                                            let is_empty: bool = w_buffer.is_empty();
-                                            w_buffer.extend_from_slice(b"-ERR invalid RESP\r\n");
-
-                                            if is_empty {
-                                                poll.registry().reregister(
-                                                    stream,
-                                                    token,
-                                                    Interest::READABLE.add(Interest::WRITABLE),
-                                                )?;
-                                            }
-                                            r_buffer.clear();
+                                        if is_empty {
+                                            poll.registry().reregister(
+                                                stream,
+                                                token,
+                                                Interest::READABLE.add(Interest::WRITABLE),
+                                            )?;
                                         }
-                                    }
-                                }
-                                Err(e) => {
-                                    if e.kind() != std::io::ErrorKind::WouldBlock {
-                                        should_remove = true;
-                                    }
-                                }
-                            }
-                        }
 
-                        if event.is_writable() {
-                            while !w_buffer.is_empty() {
-                                match stream.write(w_buffer) {
-                                    Ok(0) => break,
-                                    Ok(n) => {
-                                        w_buffer.drain(..n);
+                                        r_buffer.clear();
                                     }
-                                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                                     Err(_) => {
-                                        should_remove = true;
-                                        break;
+                                        let is_empty = w_buffer.is_empty();
+                                        w_buffer.extend_from_slice(b"-ERR invalid RESP\r\n");
+
+                                        if is_empty {
+                                            poll.registry().reregister(
+                                                stream,
+                                                token,
+                                                Interest::READABLE.add(Interest::WRITABLE),
+                                            )?;
+                                        }
+
+                                        r_buffer.clear();
                                     }
                                 }
                             }
-
-                            if w_buffer.is_empty() {
-                                poll.registry()
-                                    .reregister(stream, token, Interest::READABLE)?;
+                            Err(e) => {
+                                if e.kind() != std::io::ErrorKind::WouldBlock {
+                                    should_remove = true;
+                                }
                             }
                         }
+                    }
+
+                    if event.is_writable() {
+                        while !w_buffer.is_empty() {
+                            match stream.write(w_buffer) {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    w_buffer.drain(..n);
+                                }
+                                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                                Err(_) => {
+                                    should_remove = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if w_buffer.is_empty() {
+                            poll.registry()
+                                .reregister(stream, token, Interest::READABLE)?;
+                        }
+                    }
+
+                    if !should_remove {
+                        connections.insert(conn);
                     }
 
                     if let Some(key) = wake_key {
@@ -240,10 +257,6 @@ fn main() -> std::io::Result<()> {
                             &mut connections,
                             &mut poll,
                         )?;
-                    }
-
-                    if should_remove {
-                        connections.remove(idx);
                     }
                 }
             }
@@ -285,7 +298,7 @@ fn wake_client(
 ) -> std::io::Result<()> {
     if let Some(queue) = blocked_queues.get_mut(key) {
         while let Some(token) = queue.pop_front() {
-            if let Some((stream, _, w_buffer, blocked, block_key, block_deadline)) =
+            if let Some((stream, _, w_buffer, blocked, block_key, block_deadline, _, _)) =
                 connections.get_mut(token.0 - 1)
             {
 
@@ -350,7 +363,7 @@ fn cleanup_blocked(
 
         blocked_timeouts.pop();
 
-        if let Some((stream, _, w_buffer, blocked, block_key, block_deadline)) =
+        if let Some((stream, _, w_buffer, blocked, block_key, block_deadline, _, _)) =
             connections.get_mut(token.0 - 1)
         {
             if *blocked {

@@ -1,10 +1,11 @@
+use crate::{Entry, Expiries, Key, PubSub, Value, DB};
+use mio::Token;
 use std::cmp::Reverse;
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
+use std::ptr::write;
 use std::sync::Arc;
 use std::time::Instant;
-
-use crate::{Entry, Expiries, Key, Value, DB};
 
 pub fn read_line(buf: &[u8], start: usize) -> Option<(usize, usize)> {
     for i in start..buf.len() - 1 {
@@ -43,20 +44,27 @@ pub fn normalize_upper<'a>(cmd: &[u8], buf: &'a mut [u8]) -> &'a [u8] {
     &buf[..cmd.len()]
 }
 
-type CommandHandler =
-    fn(args: &[&[u8]], db: &mut DB, expiries: &mut Expiries) -> Result<Vec<u8>, Vec<u8>>;
+type CommandHandler = fn(args: &[&[u8]], &mut Context) -> Result<Vec<u8>, Vec<u8>>;
+
+pub struct Context<'a> {
+    pub db: &'a mut DB,
+    pub expiries: &'a mut Expiries,
+    pub pubsub: &'a mut PubSub,
+    pub subscriptions: &'a mut Vec<Vec<u8>>,
+    pub is_pubsub: &'a mut bool,
+    pub token: Token,
+}
 
 macro_rules! command_handler {
-    ($name:ident, $args:ident, $db:ident, $exp:ident, $body:block) => {
+    ($name:ident, $args:ident, $ctx:ident, $body:block) => {
         fn $name(
             $args: &[&[u8]],
-            $db: &mut DB,
-            $exp: &mut Expiries,
+            $ctx: &mut Context,
         ) -> Result<Vec<u8>, Vec<u8>> $body
     };
 }
 
-command_handler!(ping, args, _db, _expiries, {
+command_handler!(ping, args, _ctx, {
     if !args.is_empty() {
         let arg = args[0];
         let mut res = Vec::with_capacity(arg.len() + 32);
@@ -69,7 +77,7 @@ command_handler!(ping, args, _db, _expiries, {
     }
 });
 
-command_handler!(echo, args, _db, _expiries, {
+command_handler!(echo, args, _ctx, {
     if args.is_empty() {
         Err(b"-ERR wrong number of arguments\r\n".to_vec())
     } else {
@@ -82,7 +90,7 @@ command_handler!(echo, args, _db, _expiries, {
     }
 });
 
-command_handler!(set, args, db, expiries, {
+command_handler!(set, args, ctx, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
     let value = args.get(1).ok_or(b"ERR missing value".to_vec())?;
 
@@ -111,10 +119,10 @@ command_handler!(set, args, db, expiries, {
     }
 
     if let Some(exp) = expiry {
-        expiries.push((Reverse(exp), key.clone()));
+        ctx.expiries.push((Reverse(exp), key.clone()));
     }
 
-    db.insert(
+    ctx.db.insert(
         key.clone(),
         Entry {
             value: Value::String(value.to_vec()),
@@ -125,13 +133,13 @@ command_handler!(set, args, db, expiries, {
     Ok(b"+OK\r\n".to_vec())
 });
 
-command_handler!(get, args, db, _expiries, {
+command_handler!(get, args, ctx, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
 
-    if let Some(entry) = db.get(*key) {
+    if let Some(entry) = ctx.db.get(*key) {
         if let Some(exp) = entry.expiry {
             if Instant::now() >= exp {
-                db.remove(*key);
+                ctx.db.remove(*key);
                 return Ok(b"$-1\r\n".to_vec());
             }
         }
@@ -153,7 +161,7 @@ command_handler!(get, args, db, _expiries, {
     }
 });
 
-command_handler!(rpush, args, db, _expiries, {
+command_handler!(rpush, args, ctx, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
 
     if args.len() < 2 {
@@ -169,7 +177,7 @@ command_handler!(rpush, args, db, _expiries, {
     if let Some(Entry {
         value: Value::List(ref mut list),
         ..
-    }) = db.get_mut(key_bytes)
+    }) = ctx.db.get_mut(key_bytes)
     {
         for v in values {
             list.push_back(v.to_vec());
@@ -185,7 +193,7 @@ command_handler!(rpush, args, db, _expiries, {
 
         let key: Key = Arc::from(*key);
 
-        db.insert(
+        ctx.db.insert(
             key.clone(),
             Entry {
                 value: Value::List(newlist),
@@ -199,7 +207,7 @@ command_handler!(rpush, args, db, _expiries, {
     Ok(res)
 });
 
-command_handler!(lpush, args, db, _expiries, {
+command_handler!(lpush, args, ctx, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
 
     if args.len() < 2 {
@@ -215,7 +223,7 @@ command_handler!(lpush, args, db, _expiries, {
     if let Some(Entry {
         value: Value::List(ref mut list),
         ..
-    }) = db.get_mut(key_bytes)
+    }) = ctx.db.get_mut(key_bytes)
     {
         for v in values {
             list.push_front(v.to_vec());
@@ -231,7 +239,7 @@ command_handler!(lpush, args, db, _expiries, {
 
         let key: Key = Arc::from(*key);
 
-        db.insert(
+        ctx.db.insert(
             key.clone(),
             Entry {
                 value: Value::List(newlist),
@@ -245,12 +253,12 @@ command_handler!(lpush, args, db, _expiries, {
     Ok(res)
 });
 
-command_handler!(lrange, args, db, _expiries, {
+command_handler!(lrange, args, ctx, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
     let start = args.get(1).ok_or(b"ERR missing start".to_vec())?;
     let stop = args.get(2).ok_or(b"ERR missing stop".to_vec())?;
 
-    if let Some(entry) = db.get(*key) {
+    if let Some(entry) = ctx.db.get(*key) {
         match &entry.value {
             Value::List(list) => {
                 let start = std::str::from_utf8(start)
@@ -299,10 +307,10 @@ command_handler!(lrange, args, db, _expiries, {
     }
 });
 
-command_handler!(llen, args, db, _expiries, {
+command_handler!(llen, args, ctx, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
 
-    if let Some(entry) = db.get(*key) {
+    if let Some(entry) = ctx.db.get(*key) {
         match &entry.value {
             Value::List(list) => {
                 let mut res = Vec::with_capacity(32);
@@ -318,10 +326,10 @@ command_handler!(llen, args, db, _expiries, {
     }
 });
 
-command_handler!(lpop, args, db, _expiries, {
+command_handler!(lpop, args, ctx, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
 
-    if let Some(entry) = db.get_mut(*key) {
+    if let Some(entry) = ctx.db.get_mut(*key) {
         match entry.value {
             Value::List(ref mut list) => {
                 if list.len() == 0 {
@@ -383,11 +391,11 @@ command_handler!(lpop, args, db, _expiries, {
     }
 });
 
-command_handler!(blpop, args, db, _expiries, {
+command_handler!(blpop, args, ctx, {
     let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
     let _ = args.get(1).ok_or(b"ERR missing timeout".to_vec())?;
 
-    if let Some(entry) = db.get_mut(*key) {
+    if let Some(entry) = ctx.db.get_mut(*key) {
         if let Value::List(ref mut list) = entry.value {
             if let Some(val) = list.pop_front() {
                 let mut res = Vec::with_capacity(val.len() + key.len() + 64);
@@ -410,6 +418,25 @@ command_handler!(blpop, args, db, _expiries, {
     Err(b"__BLOCK__".to_vec())
 });
 
+command_handler!(subscribe, args, ctx, {
+   let channel = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+
+    ctx.subscriptions.push(channel.to_vec());
+    *ctx.is_pubsub = true;
+    ctx.pubsub
+        .entry(channel.to_vec())
+        .or_insert_with(Vec::new)
+        .push(ctx.token);
+
+    let mut res = Vec::with_capacity(23 + channel.len() + 1 + 20 + 2);
+    res.extend_from_slice(b"*3\r\n$9\r\nsubscribe\r\n");
+    write!(res, "${}\r\n", channel.len()).unwrap();
+    res.extend_from_slice(channel);
+    write!(res, "\r\n:{}\r\n", ctx.subscriptions.len()).unwrap();
+    Ok(res)
+
+});
+
 pub type CommandTable = HashMap<&'static [u8], CommandHandler>;
 
 pub fn command_table() -> CommandTable {
@@ -425,6 +452,7 @@ pub fn command_table() -> CommandTable {
     table.insert(b"LLEN", llen);
     table.insert(b"LPOP", lpop);
     table.insert(b"BLPOP", blpop);
+    table.insert(b"SUBSCRIBE", subscribe);
     table
 }
 
