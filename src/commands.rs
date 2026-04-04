@@ -55,8 +55,12 @@ pub struct Context<'a> {
 }
 
 const PUBSUB_HANDLER: &[&[u8]] = &[
-    b"subscribe", b"unsubscribe", b"psubscribe",
-    b"punsubscribe", b"ping", b"quit"
+    b"subscribe",
+    b"unsubscribe",
+    b"psubscribe",
+    b"punsubscribe",
+    b"ping",
+    b"quit",
 ];
 
 macro_rules! command_handler {
@@ -119,8 +123,8 @@ command_handler!(echo, args, _ctx, {
 });
 
 command_handler!(set, args, ctx, {
-    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
-    let value = args.get(1).ok_or(b"ERR missing value".to_vec())?;
+    let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
+    let value = args.get(1).ok_or(b"-ERR missing value".to_vec())?;
 
     let key: Key = Arc::from(*key);
 
@@ -131,10 +135,10 @@ command_handler!(set, args, ctx, {
         let option = std::str::from_utf8(args[2]).unwrap().to_uppercase();
 
         if option == "EX" || option == "PX" {
-            let exp = std::str::from_utf8(args.get(3).ok_or(b"ERR missing EX value".to_vec())?)
+            let exp = std::str::from_utf8(args.get(3).ok_or(b"-ERR missing EX value".to_vec())?)
                 .unwrap()
                 .parse::<u64>()
-                .map_err(|_| b"ERR invalid EX/PX value".to_vec())?;
+                .map_err(|_| b"-ERR invalid EX/PX value".to_vec())?;
 
             let duration = if option == "PX" {
                 std::time::Duration::from_millis(exp)
@@ -162,7 +166,7 @@ command_handler!(set, args, ctx, {
 });
 
 command_handler!(get, args, ctx, {
-    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+    let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if let Some(entry) = ctx.db.get(*key) {
         if let Some(exp) = entry.expiry {
@@ -190,7 +194,7 @@ command_handler!(get, args, ctx, {
 });
 
 command_handler!(rpush, args, ctx, {
-    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+    let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if args.len() < 2 {
         return Err(b"-ERR wrong number of arguments\r\n".to_vec());
@@ -236,7 +240,7 @@ command_handler!(rpush, args, ctx, {
 });
 
 command_handler!(lpush, args, ctx, {
-    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+    let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if args.len() < 2 {
         return Err(b"-ERR wrong number of arguments\r\n".to_vec());
@@ -282,9 +286,9 @@ command_handler!(lpush, args, ctx, {
 });
 
 command_handler!(lrange, args, ctx, {
-    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
-    let start = args.get(1).ok_or(b"ERR missing start".to_vec())?;
-    let stop = args.get(2).ok_or(b"ERR missing stop".to_vec())?;
+    let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
+    let start = args.get(1).ok_or(b"-ERR missing start".to_vec())?;
+    let stop = args.get(2).ok_or(b"-ERR missing stop".to_vec())?;
 
     if let Some(entry) = ctx.db.get(*key) {
         match &entry.value {
@@ -336,7 +340,7 @@ command_handler!(lrange, args, ctx, {
 });
 
 command_handler!(llen, args, ctx, {
-    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+    let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if let Some(entry) = ctx.db.get(*key) {
         match &entry.value {
@@ -355,7 +359,7 @@ command_handler!(llen, args, ctx, {
 });
 
 command_handler!(lpop, args, ctx, {
-    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+    let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if let Some(entry) = ctx.db.get_mut(*key) {
         match entry.value {
@@ -420,8 +424,8 @@ command_handler!(lpop, args, ctx, {
 });
 
 command_handler!(blpop, args, ctx, {
-    let key = args.get(0).ok_or(b"ERR missing key".to_vec())?;
-    let _ = args.get(1).ok_or(b"ERR missing timeout".to_vec())?;
+    let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
+    let _ = args.get(1).ok_or(b"-ERR missing timeout".to_vec())?;
 
     if let Some(entry) = ctx.db.get_mut(*key) {
         if let Value::List(ref mut list) = entry.value {
@@ -447,7 +451,7 @@ command_handler!(blpop, args, ctx, {
 });
 
 command_handler!(subscribe, args, ctx, {
-   let channel = args.get(0).ok_or(b"ERR missing key".to_vec())?;
+    let channel = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     ctx.subscriptions.push(channel.to_vec());
     *ctx.is_pubsub = true;
@@ -461,6 +465,22 @@ command_handler!(subscribe, args, ctx, {
     write!(res, "${}\r\n", channel.len()).unwrap();
     res.extend_from_slice(channel);
     write!(res, "\r\n:{}\r\n", ctx.subscriptions.len()).unwrap();
+    Ok(res)
+});
+
+command_handler!(publish, args, ctx, {
+    let channel = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
+    let _message = args.get(1).ok_or(b"-ERR missing key".to_vec())?;
+
+    let len: usize;
+    if let Some(entry) = ctx.pubsub.get(&channel.to_vec()) {
+        len = entry.len();
+    } else {
+        len = 0;
+    }
+
+    let mut res = Vec::with_capacity(32);
+    write!(res, ":{}\r\n", len).unwrap();
     Ok(res)
 });
 
@@ -480,6 +500,7 @@ pub fn command_table() -> CommandTable {
     table.insert(b"LPOP", lpop);
     table.insert(b"BLPOP", blpop);
     table.insert(b"SUBSCRIBE", subscribe);
+    table.insert(b"PUBLISH", publish);
     table
 }
 
