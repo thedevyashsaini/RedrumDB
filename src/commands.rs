@@ -45,6 +45,13 @@ pub fn normalize_upper<'a>(cmd: &[u8], buf: &'a mut [u8]) -> &'a [u8] {
 
 type CommandHandler = fn(args: &[&[u8]], &mut Context) -> Result<Vec<u8>, Vec<u8>>;
 
+pub enum Action {
+    Publish {
+        channel: Vec<u8>,
+        message: Vec<u8>,
+    },
+}
+
 pub struct Context<'a> {
     pub db: &'a mut DB,
     pub expiries: &'a mut Expiries,
@@ -52,6 +59,7 @@ pub struct Context<'a> {
     pub subscriptions: &'a mut Vec<Vec<u8>>,
     pub is_pubsub: &'a mut bool,
     pub token: Token,
+    pub actions: &'a mut Vec<Action>,
 }
 
 const PUBSUB_HANDLER: &[&[u8]] = &[
@@ -470,7 +478,7 @@ command_handler!(subscribe, args, ctx, {
 
 command_handler!(publish, args, ctx, {
     let channel = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
-    let _message = args.get(1).ok_or(b"-ERR missing key".to_vec())?;
+    let message = args.get(1).ok_or(b"-ERR missing key".to_vec())?;
 
     let len: usize;
     if let Some(entry) = ctx.pubsub.get(&channel.to_vec()) {
@@ -478,6 +486,11 @@ command_handler!(publish, args, ctx, {
     } else {
         len = 0;
     }
+
+    ctx.actions.push(Action::Publish {
+        channel: channel.to_vec(),
+        message: message.to_vec(),
+    });
 
     let mut res = Vec::with_capacity(32);
     write!(res, ":{}\r\n", len).unwrap();

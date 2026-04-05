@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 mod commands;
-use crate::commands::Context;
+use crate::commands::{Action, Context};
 use commands::{command_table, normalize_upper, parse_command};
 
 const SERVER: Token = Token(0);
@@ -61,6 +61,7 @@ fn main() -> std::io::Result<()> {
     let mut blocked_queues: HashMap<Key, VecDeque<Token>> = HashMap::new();
     let mut blocked_timeouts: BinaryHeap<(Reverse<Instant>, Token)> = BinaryHeap::new();
     let mut pubsub: PubSub = HashMap::new();
+    let mut actions: Vec<Action> = Vec::new();
 
     let table = command_table();
 
@@ -163,6 +164,7 @@ fn main() -> std::io::Result<()> {
                                             subscriptions,
                                             is_pubsub,
                                             token,
+                                            actions: &mut actions
                                         };
 
                                         match table.get(normalized) {
@@ -221,6 +223,45 @@ fn main() -> std::io::Result<()> {
                                             None => {
                                                 w_buffer
                                                     .extend_from_slice(b"-ERR unknown command\r\n");
+                                            }
+                                        }
+
+                                        while let Some(action) = &actions.pop() {
+                                            match action {
+                                                Action::Publish { channel, message } => {
+                                                    if let Some(subs) = pubsub.get(&channel[..]) {
+                                                        for &token in subs {
+                                                            if let Some((stream, _, w_buffer, _, _, _, _, _)) =
+                                                                connections.get_mut(token.0 - 1)
+                                                            {
+                                                                let mut res = Vec::new();
+
+                                                                write!(res, "*3\r\n")?;
+
+                                                                write!(res, "$7\r\nmessage\r\n")?;
+
+                                                                write!(res, "${}\r\n", channel.len())?;
+                                                                res.extend_from_slice(&channel);
+                                                                res.extend_from_slice(b"\r\n");
+
+                                                                write!(res, "${}\r\n", message.len())?;
+                                                                res.extend_from_slice(&message);
+                                                                res.extend_from_slice(b"\r\n");
+
+                                                                let was_empty = w_buffer.is_empty();
+                                                                w_buffer.extend_from_slice(&res);
+
+                                                                if was_empty {
+                                                                    poll.registry().reregister(
+                                                                        stream,
+                                                                        token,
+                                                                        Interest::READABLE.add(Interest::WRITABLE),
+                                                                    )?;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
 
