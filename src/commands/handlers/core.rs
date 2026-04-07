@@ -1,0 +1,36 @@
+use std::io::Write;
+use crate::command_handler;
+use crate::commands::Context;
+
+command_handler!(ping, args, ctx, {
+    if !args.is_empty() {
+        let arg = args[0];
+        let mut res = Vec::with_capacity(arg.len() + 32);
+
+        if *ctx.is_pubsub {
+            res.extend_from_slice(b"*2\r\n$4\r\npong\r\n");
+        }
+        write!(res, "${}\r\n", arg.len()).unwrap();
+        res.extend_from_slice(arg);
+        res.extend_from_slice(b"\r\n");
+        Ok(res)
+    } else {
+        if *ctx.is_pubsub {
+            return Ok(b"*2\r\n$4\r\npong\r\n$0\r\n\r\n".to_vec());
+        }
+        Ok(b"+PONG\r\n".to_vec())
+    }
+});
+
+command_handler!(echo, args, _ctx, {
+    if args.is_empty() {
+        Err(b"-ERR wrong number of arguments\r\n".to_vec())
+    } else {
+        let arg = args[0];
+        let mut res = Vec::with_capacity(arg.len() + 32);
+        write!(res, "${}\r\n", arg.len()).unwrap();
+        res.extend_from_slice(arg);
+        res.extend_from_slice(b"\r\n");
+        Ok(res)
+    }
+});
