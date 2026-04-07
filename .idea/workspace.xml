@@ -8,9 +8,14 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ec91d0db-f3b0-4939-98eb-c1c7dc93f130" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/src/data_structures/listpack.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/commands/handlers/core.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands/handlers/core.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/commands/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/commands/handlers/lists.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands/handlers/lists.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/commands/handlers/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands/handlers/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/commands/handlers/pubsub.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands/handlers/pubsub.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/commands/handlers/strings.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands/handlers/strings.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -18,6 +23,13 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:dev" />
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Rust File" />
+      </list>
+    </option>
+  </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
@@ -37,20 +49,26 @@
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.rust.reset.selective.auto.import&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;listpack&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/Devyash/Documents/Redis&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/Devyash/Documents/Redis/src/data_structures&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
     &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
+    &quot;org.rust.disableDetachedFileInspectionC:/Users/Devyash/Documents/Redis/src/data_structures/listpack.rs&quot;: &quot;true&quot;,
     &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
     &quot;settings.editor.selected.configurable&quot;: &quot;terminal&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\Devyash\Documents\Redis\src\data_structures" />
+    </key>
+  </component>
   <component name="RunManager" selected="Cargo.Run codecrafters-redis">
     <configuration name="Run codecrafters-redis" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="buildProfileId" value="dev" />
@@ -111,7 +129,7 @@
       <workItem from="1775364098239" duration="7555000" />
       <workItem from="1775396066108" duration="40000" />
       <workItem from="1775533733207" duration="1197000" />
-      <workItem from="1775536202836" duration="2461000" />
+      <workItem from="1775536202836" duration="12631000" />
     </task>
     <servers />
   </component>

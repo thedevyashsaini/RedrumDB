@@ -1,13 +1,12 @@
+use crate::command_handler;
+use crate::commands::Context;
+use crate::types::{Entry, Key, Value};
 use std::cmp::Reverse;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
-use crate::command_handler;
-use crate::commands::Context;
-use crate::types::{Entry, Key, Value};
 
 command_handler!(set, args, ctx, {
-
     let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
     let value = args.get(1).ok_or(b"-ERR missing value".to_vec())?;
 
@@ -51,7 +50,6 @@ command_handler!(set, args, ctx, {
 });
 
 command_handler!(get, args, ctx, {
-
     let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if let Some(entry) = ctx.db.get(*key) {
