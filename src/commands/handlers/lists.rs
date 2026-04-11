@@ -2,12 +2,11 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
 
-use crate::commands::{Context};
-use crate::types::{Entry, Key, Value};
 use crate::command_handler;
+use crate::commands::Context;
+use crate::types::{Entry, Key, Value};
 
 command_handler!(rpush, args, ctx, {
-
     let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if args.len() < 2 {
@@ -54,7 +53,6 @@ command_handler!(rpush, args, ctx, {
 });
 
 command_handler!(lpush, args, ctx, {
-
     let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if args.len() < 2 {
@@ -101,7 +99,6 @@ command_handler!(lpush, args, ctx, {
 });
 
 command_handler!(lrange, args, ctx, {
-
     let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
     let start = args.get(1).ok_or(b"-ERR missing start".to_vec())?;
     let stop = args.get(2).ok_or(b"-ERR missing stop".to_vec())?;
@@ -156,7 +153,6 @@ command_handler!(lrange, args, ctx, {
 });
 
 command_handler!(llen, args, ctx, {
-
     let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if let Some(entry) = ctx.db.get(*key) {
@@ -176,7 +172,6 @@ command_handler!(llen, args, ctx, {
 });
 
 command_handler!(lpop, args, ctx, {
-
     let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     if let Some(entry) = ctx.db.get_mut(*key) {
@@ -242,7 +237,6 @@ command_handler!(lpop, args, ctx, {
 });
 
 command_handler!(blpop, args, ctx, {
-
     let key = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
     let _ = args.get(1).ok_or(b"-ERR missing timeout".to_vec())?;
 

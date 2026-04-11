@@ -1,9 +1,8 @@
-use std::io::Write;
 use crate::command_handler;
 use crate::commands::{Action, Context};
+use std::io::Write;
 
 command_handler!(subscribe, args, ctx, {
-
     let channel = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
 
     ctx.subscriptions.push(channel.to_vec());
@@ -22,7 +21,6 @@ command_handler!(subscribe, args, ctx, {
 });
 
 command_handler!(publish, args, ctx, {
-
     let channel = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
     let message = args.get(1).ok_or(b"-ERR missing key".to_vec())?;
 
@@ -44,7 +42,6 @@ command_handler!(publish, args, ctx, {
 });
 
 command_handler!(unsubscribe, args, ctx, {
-
     if *ctx.is_pubsub {
         let channel = args.get(0).ok_or(b"-ERR missing key".to_vec())?;
         let channel_key = channel.to_vec();
