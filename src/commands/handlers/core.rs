@@ -42,6 +42,7 @@ command_handler!(typee, args, ctx, {
         let ret = match value {
             Value::List(_) => b"+list\r\n".to_vec(),
             Value::String(_) => b"+string\r\n".to_vec(),
+            Value::Stream(_) => b"+stream\r\n".to_vec()
         };
         let mut res = Vec::with_capacity(9);
         res.extend_from_slice(&*ret);

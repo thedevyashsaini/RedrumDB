@@ -27,12 +27,12 @@ impl<V> RadixTree<V> {
         insert_rec(&mut self.root, key, value);
     }
 
-    pub fn get(&self, key: &[u8]) -> Option<&V> {
-        get_rec(&self.root, key)
+    pub fn get(&mut self, key: &[u8]) -> Option<&mut V> {
+        get_rec(&mut self.root, key)
     }
 }
 
-fn get_rec<'a, V>(node: &'a RadixNode<V>, key: &[u8]) -> Option<&'a V> {
+fn get_rec<'a, V>(node: &'a mut RadixNode<V>, key: &[u8]) -> Option<&'a mut V> {
     if !key.starts_with(&node.prefix) {
         return None;
     }
@@ -40,11 +40,11 @@ fn get_rec<'a, V>(node: &'a RadixNode<V>, key: &[u8]) -> Option<&'a V> {
     let rem = &key[node.prefix.len()..];
 
     if rem.is_empty() {
-        return node.value.as_ref();
+        return node.value.as_mut();
     }
 
     let next = rem[0];
-    for (b, child) in &node.children {
+    for (b, child) in &mut node.children {
         if *b == next {
             return get_rec(child, rem);
         }
@@ -57,7 +57,7 @@ fn insert_rec<V>(node: &mut RadixNode<V>, key: &[u8], value: V) {
     let common = lcp(&node.prefix, key);
 
     if common < node.prefix.len() {
-        let mut child = RadixNode {
+        let child = RadixNode {
             prefix: node.prefix[common..].to_vec(),
             children: std::mem::take(&mut node.children),
             value: node.value.take(),

@@ -1,3 +1,4 @@
+#![allow(unused)]
 const LP_HDR_SIZE: usize = 6;
 const LP_EOF: u8 = 0xFF;
 

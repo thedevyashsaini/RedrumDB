@@ -3,12 +3,14 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
+use crate::data_structures::stream::Stream;
 
 pub type Key = Arc<[u8]>;
 
 pub enum Value {
     String(Vec<u8>),
     List(VecDeque<Vec<u8>>),
+    Stream(Stream)
 }
 
 pub struct Entry {

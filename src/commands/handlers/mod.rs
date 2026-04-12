@@ -2,6 +2,7 @@ pub mod core;
 pub mod lists;
 pub mod pubsub;
 pub mod strings;
+pub mod streams;
 
 pub const PUBSUB_HANDLER: &[&[u8]] = &[
     b"subscribe",
