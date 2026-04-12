@@ -1,6 +1,7 @@
 use crate::data_structures::listpack::{Listpack, ListpackValueRef};
 use crate::data_structures::radix::RadixTree;
 use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct StreamID {
@@ -17,13 +18,28 @@ impl StreamID {
     }
 
     pub fn parse(input: &[u8], last_id: StreamID) -> Result<Self, Vec<u8>> {
+        if input == b"*" {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_millis() as u64;
+            let seq;
+            if last_id.ms == now {
+                seq = last_id.seq + 1;
+            } else {
+                seq = 0;
+            }
+
+            return Ok(StreamID { ms: now, seq });
+        }
+
         let dash = input
             .iter()
             .position(|&b| b == b'-')
             .ok_or(b"-ERR invalid stream id".to_vec())?;
 
         let (ms_part, seq_part) = input.split_at(dash);
-        let mut seq_part = &seq_part[1..];
+        let seq_part = &seq_part[1..];
 
         let ms = parse_u64(ms_part)?;
         let seq;
