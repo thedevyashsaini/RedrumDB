@@ -13,7 +13,7 @@ command_handler!(xadd, args, ctx, {
         return Err(b"-ERR The ID specified in XADD must be greater than 0-0\r\n".to_vec());
     }
 
-    let fields: Vec<(&[u8], &[u8])>  = {
+    let fields: Vec<(&[u8], &[u8])> = {
         let kv = &args[2..];
 
         if kv.len() % 2 != 0 {
@@ -28,17 +28,22 @@ command_handler!(xadd, args, ctx, {
         pairs
     };
 
-    let entry_id_formatted = StreamID::parse(entry_id)?;
+    let entry_id_formatted;
 
     if let Some(Entry {
         value: Value::Stream(ref mut stream),
         ..
     }) = ctx.db.get_mut(*key)
     {
+        entry_id_formatted = StreamID::parse(
+            entry_id,
+            stream.last_id.unwrap_or(StreamID { ms: 0, seq: 0 }),
+        )?;
         stream.add(entry_id_formatted, &fields)?;
     } else {
         let key: Key = Arc::from(*key);
         let mut newstream = Stream::new();
+        entry_id_formatted = StreamID::parse(entry_id, StreamID { ms: 0, seq: 0 })?;
         newstream.add(entry_id_formatted, &fields)?;
         ctx.db.insert(
             key.clone(),
@@ -49,9 +54,14 @@ command_handler!(xadd, args, ctx, {
         );
     }
 
-    let mut res = Vec::with_capacity(entry_id.len() + 25);
-    write!(res, "${}\r\n", entry_id.len()).unwrap();
-    res.extend_from_slice(entry_id);
-    write!(res, "\r\n").unwrap();
+    let total_len =
+        entry_id_formatted.ms.to_string().len() + 1 + entry_id_formatted.seq.to_string().len();
+    let mut res = Vec::with_capacity(total_len + 29);
+    write!(
+        res,
+        "${}\r\n{}-{}\r\n",
+        total_len, entry_id_formatted.ms, entry_id_formatted.seq
+    )
+    .unwrap();
     Ok(res)
 });

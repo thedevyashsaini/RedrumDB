@@ -2,8 +2,6 @@ use crate::data_structures::listpack::{Listpack, ListpackValueRef};
 use crate::data_structures::radix::RadixTree;
 use std::collections::BTreeMap;
 
-
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct StreamID {
     pub ms: u64,
@@ -18,15 +16,29 @@ impl StreamID {
         out
     }
 
-    pub fn parse(input: &[u8]) -> Result<Self, Vec<u8>> {
-        let dash = input.iter().position(|&b| b == b'-')
+    pub fn parse(input: &[u8], last_id: StreamID) -> Result<Self, Vec<u8>> {
+        let dash = input
+            .iter()
+            .position(|&b| b == b'-')
             .ok_or(b"-ERR invalid stream id".to_vec())?;
 
         let (ms_part, seq_part) = input.split_at(dash);
-        let seq_part = &seq_part[1..];
+        let mut seq_part = &seq_part[1..];
 
         let ms = parse_u64(ms_part)?;
-        let seq = parse_u64(seq_part)?;
+        let seq;
+
+        if seq_part == b"*" {
+            if ms > last_id.ms {
+                seq = 0;
+            } else if ms == last_id.ms {
+                seq = last_id.seq + 1;
+            } else {
+                return Err(b"-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n".to_vec());
+            }
+        } else {
+            seq = parse_u64(seq_part)?;
+        }
 
         Ok(StreamID { ms, seq })
     }
@@ -57,7 +69,7 @@ pub struct StreamNode {
 pub struct Stream {
     tree: RadixTree<StreamNode>,
     index: BTreeMap<StreamID, ()>,
-    last_id: Option<StreamID>,
+    pub last_id: Option<StreamID>,
 }
 
 impl Stream {
@@ -65,11 +77,11 @@ impl Stream {
         Self {
             tree: RadixTree::new(),
             index: BTreeMap::new(),
-            last_id: None
+            last_id: None,
         }
     }
 
-    pub fn add(&mut self, id: StreamID, fields: &[(&[u8], &[u8])]) -> Result<(), Vec<u8>>{
+    pub fn add(&mut self, id: StreamID, fields: &[(&[u8], &[u8])]) -> Result<(), Vec<u8>> {
         if let Some(last) = self.last_id {
             if id <= last {
                 return Err(b"-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n".to_vec());
@@ -91,10 +103,7 @@ impl Stream {
         let mut lp = Listpack::new();
         append_entry(&mut lp, &id, &fields);
 
-        let node = StreamNode {
-            last_id: id,
-            lp,
-        };
+        let node = StreamNode { last_id: id, lp };
 
         let key_bytes = id.to_bytes();
 
@@ -134,9 +143,7 @@ fn find_entry_in_listpack<'a>(
 
         let num_fields = match iter.next()? {
             ListpackValueRef::Int(n) => n as usize,
-            ListpackValueRef::String(b) => {
-                u64::from_be_bytes(b.try_into().ok()?) as usize
-            }
+            ListpackValueRef::String(b) => u64::from_be_bytes(b.try_into().ok()?) as usize,
         };
 
         let mut fields = Vec::new();
@@ -156,11 +163,7 @@ fn find_entry_in_listpack<'a>(
     None
 }
 
-fn append_entry(
-    lp: &mut Listpack,
-    id: &StreamID,
-    fields: &[(&[u8], &[u8])],
-) {
+fn append_entry(lp: &mut Listpack, id: &StreamID, fields: &[(&[u8], &[u8])]) {
     lp.append(&id.ms.to_be_bytes()).unwrap();
     lp.append(&id.seq.to_be_bytes()).unwrap();
 
@@ -175,8 +178,7 @@ fn append_entry(
 fn can_append(node: &StreamNode, id: &StreamID) -> bool {
     let size_ok = node.lp.total_bytes() < 4096;
     let strictly_increasing = *id > node.last_id;
-    let id_close = id.ms >= node.last_id.ms &&
-        id.ms - node.last_id.ms < 1000;
+    let id_close = id.ms >= node.last_id.ms && id.ms - node.last_id.ms < 1000;
 
     size_ok && strictly_increasing && id_close
 }
