@@ -1,34 +1,73 @@
-[![progress-banner](https://backend.codecrafters.io/progress/redis/637be721-9f16-43f9-9666-a2570d8cc5ab)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+<img width="1125" height="375" alt="High-performance in-memory datastore in Rust(1)" src="https://github.com/user-attachments/assets/bb988174-d428-4ec0-a2fb-02e284461c94" />
 
-This is a starting point for Rust solutions to the
-["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
 
-In this challenge, you'll build a toy Redis clone that's capable of handling
-basic commands like `PING`, `SET` and `GET`. Along the way we'll learn about
-event loops, the Redis protocol and more.
+![Rust](https://img.shields.io/badge/language-Rust-orange?style=for-the-badge&logo=rust)
+![Event Driven](https://img.shields.io/badge/architecture-event--driven-black?style=for-the-badge)
+![Zero Copy](https://img.shields.io/badge/parsing-zero--copy-blue?style=for-the-badge)
+![No Alloc](https://img.shields.io/badge/memory-allocation--aware-red?style=for-the-badge)
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+> no ai. just docs, articles, code, and time.
 
-# Passing the first stage
+RedrumDB is an in-memory datastore implemented in Rust.
 
-The entry point for your Redis implementation is in `src/main.rs`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+The project focuses on building core components from scratch to better understand the design and performance characteristics of systems like [Redis](https://github.com/redis/redis).
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+<h3>Features</h3>
+
+- key-value store (strings, lists, streams)
+- RESP protocol support
+- pub/sub
+- blocking operations (BLPOP)
+- key expiries
+- non-blocking I/O
+
+
+<h3>Architecture</h3>
+
+The server runs on a single-threaded, event-driven loop using `mio`, with slab-based connection management and non-blocking I/O.
+
+Requests are parsed using a low-copy RESP parser, decoding command names and arguments directly from the connection buffer before dispatch.
+
+Core components:
+
+- **event loop + connections**
+  - `mio`-based loop with explicit readable/writable interest switching  
+  - slab + token model for stable connection indexing  
+  - backpressure-aware writes with per-connection output buffers  
+
+- **command execution**
+  - command dispatch table for normalized O(1)-style handler lookup  
+  - centralized handling of pub/sub mode constraints  
+
+- **memory + data model**
+  - in-memory keyspace with typed values (string, list, stream)  
+  - shared key storage using `Arc<[u8]>` to reduce duplication  
+
+- **scheduling + time**
+  - expiry engine using a min-heap (`BinaryHeap<Reverse<Instant>>`)  
+  - incremental cleanup bounded per loop to avoid latency spikes  
+
+- **blocking + async behavior**
+  - blocking list operations (BLPOP) with per-key wait queues  
+  - timeout scheduling integrated into the main event loop  
+
+- **streams**
+  - custom **[listpack](https://github.com/antirez/listpack/blob/master/listpack.md)** implementation for compact storage  
+  - **radix tree** with prefix compression for ordered indexing  
+  - Redis-like stream ID semantics (`*`, `ms-*`, explicit IDs)
+
+Design prioritizes predictable latency, minimal allocations, and explicit control over execution.
+
+<h3>running</h3>
+
+```bash
+git clone https://github.com/thedevyashsaini/redrumdb
+cd redrumdb
+cargo run
 ```
 
-That's all!
+Connect using:
 
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `cargo (1.82)` installed locally
-1. Run `./your_program.sh` to run your Redis server, which is implemented in
-   `src/main.rs`. This command compiles your Rust project, so it might be slow
-   the first time you run it. Subsequent runs will be fast.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+```bash
+redis-cli -p 6379
+```
